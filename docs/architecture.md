@@ -89,11 +89,9 @@ APIs. CLI adapters use these public entrypoints for server startup, selectors,
 reports, and recording rather than importing implementation files.
 
 MCP tools and executable options keep their names and input schemas.
-Runtime implementations cannot import the MCP SDK or MCP adapters. Only two
-temporary compatibility exports remain for the CLI's existing imports:
-`src/mcp_server_runner.dart` and `src/session/step_logger.dart`. The CLI migration
-removes them once it uses the public entrypoints. Runtime implementations do
-not depend on these bridges, and new code imports the canonical modules.
+Runtime implementations cannot import the MCP SDK or MCP adapters. Internal
+compatibility aliases have been removed: consumers use the public entrypoints,
+and internal code imports canonical implementation modules.
 
 ## Structured tool results
 
@@ -162,8 +160,7 @@ transfers cleanup to the recording session.
    errors, and public SDK interaction. Update consumer guidance for observable
    changes.
 
-The architecture test enforces the public entrypoints and dependency direction;
-it also prevents compatibility bridges from accumulating implementation logic.
+The architecture test enforces the public entrypoints and dependency direction.
 
 ## Verification
 
