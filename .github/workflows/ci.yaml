@@ -37,6 +37,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check frame protocol compatibility
+        run: dart tool/check_frame_protocol.dart
+
       - name: Analyze marionette_mcp
         run: |
           cd packages/marionette_mcp
@@ -45,7 +48,7 @@ jobs:
       - name: Analyze marionette_cli
         run: |
           cd packages/marionette_cli
-          dart analyze --fatal-infos lib bin
+          dart analyze --fatal-infos lib bin test
 
       - name: Analyze marionette_flutter
         run: |
@@ -138,13 +141,16 @@ jobs:
           YAML
           dart pub get --no-example
 
+      - name: Check frame protocol compatibility
+        run: dart tool/check_frame_protocol.dart
+
       - name: Analyze marionette_mcp
         working-directory: packages/marionette_mcp
         run: dart analyze --fatal-infos lib bin test
 
       - name: Analyze marionette_cli
         working-directory: packages/marionette_cli
-        run: dart analyze --fatal-infos lib bin
+        run: dart analyze --fatal-infos lib bin test
 
       - name: Run tests for marionette_mcp
         working-directory: packages/marionette_mcp

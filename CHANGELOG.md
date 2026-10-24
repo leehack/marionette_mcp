@@ -1,5 +1,8 @@
 # Unreleased
 
+- Fix failed CLI web recording startup leaving its WebSocket listener open.
+- Reject incomplete, malformed, or nonfinite CLI coordinates and pinch-zoom values, and conflicting targeting modes, before calling the app.
+- Use public runtime APIs and shared MCP server options in the CLI, including SSE port validation.
 - Add output schemas and structured success results to MCP tools while preserving existing text and images.
 - Upgrade `mcp_dart` to `^2.4.3` and use its fixed dynamic-tool removal on reconnect.
 - Fix MCP server shutdown leaving app connections open.
