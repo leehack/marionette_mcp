@@ -5,45 +5,93 @@ composition, configuration, and typed tools:
 
 ```text
 packages/marionette_mcp/
-  bin/marionette_mcp.dart       parse options and start the server
-  lib/marionette_mcp.dart       public server API
-  lib/runtime.dart             public app/session/recording runtime API
-  lib/mcp/
-    mcp.dart                   createMcpServer and server instructions
-    server_config.dart         options shared with marionette mcp
-    server_context.dart        shared connection/session state and ownership
-    server_runner.dart         logging, transport startup, and shutdown
-    step_logging.dart          MCP result/session logging adapter
-    tools/
-      base_tool.dart           metadata and execute contract
-      tools.dart               createAllTools and registration
-      connection_tools.dart    connect/disconnect contracts and lifecycle calls
-      dynamic_extension_tools.dart  app-defined typed tools and registrations
-      *_tools.dart             tools grouped by responsibility
-  lib/src/                     runtime implementation details
+  bin/marionette_mcp.dart       parse options and run the server
+  lib/
+    marionette_mcp.dart         public server entrypoint
+    runtime.dart               public app/session/recording entrypoint
+    src/
+      mcp/
+        mcp.dart               composition root and server instructions
+        server_config.dart     standalone MCP server options
+        server_context.dart    runtime-to-MCP lifecycle wiring
+        server_runner.dart     logging, transports, and shutdown
+        step_logging.dart      MCP result logging adapter
+        tools/
+          base_tool.dart       schema/metadata/execution contract
+          tools.dart           complete built-in tool factory
+          *_tools.dart         thin MCP adapters by capability
+          dynamic_extension_tools.dart  app-specific registration
+      vm_service/
+        app_connection_service.dart  handshake, sessions, ownership
+        vm_service_connector.dart   VM transport and app operations
+      session/
+        screenshot_service.dart     capture and persistence
+        session_manager.dart        report directories and retention
+        report_steps.dart           report formatting and persistence
+      video/                        recording implementation
 ```
 
-Each static tool extends `BaseTool` and receives its connector and logger
-through its constructor. Screenshot tools also receive the session step
-logger. `createAllTools` composes all 20 built-in tools, including connection
-tools, without opening sockets or starting a process. `createMcpServer` uses
-`registerMcpTools` to register them and apply step logging once, at the
-composition boundary. The context contains no tool definitions or registration
-loop. Connection tools own their additional
-session-report transitions; app-defined tools are discovered dynamically.
-In-flight tool calls retain their original report session; a superseded
-connection attempt cannot add a step to its replacement's report.
+Only the two `lib/` entrypoints are intended for imports by consumers. All
+implementation lives under `src/`, following Dart's package convention. The
+`mcp/` directory groups protocol adapters within that internal implementation.
+
+## Responsibility boundaries
+
+| Layer | Owns |
+| --- | --- |
+| MCP tools | Input/output schemas, request validation, invoking services, mapping results/errors to MCP text/images/structured data |
+| Runtime services | Connection workflow, binding compatibility, report-session policy, transition ownership, screenshot storage |
+| VM connector | VM transport, app service-extension calls, and app operations |
+| Composition root | Constructing dependencies, registering tools, and wiring lifecycle callbacks |
+| Server runner | Transport startup and deterministic shutdown |
+
+A tool does not create report directories, decide connection compatibility, or
+manage asynchronous connection state. It translates between the MCP contract
+and typed runtime inputs/results. Input validation and presentation stay in the
+adapter; workflow and persistence stay in services. Simple app-operation tools
+can delegate directly to the existing VM connector without an extra service
+wrapper for every method.
+
+```mermaid
+flowchart LR
+  Client[MCP client] --> Tool[MCP tool adapter]
+  Tool --> Service[Runtime service]
+  Service --> Connector[VM connector]
+  Connector --> App[Flutter app]
+```
+
+`AppConnectionService` has no MCP dependency. It owns version checks, session
+opt-in/setup, overlapping transitions, and disposal, returning typed outcomes.
+The MCP context wires its lifecycle callbacks to dynamic registration and step
+logging. This keeps app state authoritative in the service while protocol
+callbacks remain adapters. A superseded attempt cannot create a replacement
+session or log into it; disconnect retains its original session for its final
+report step.
+
+`ScreenshotService` likewise has no MCP dependency. It captures images and
+saves numbered files without overwriting prior captures. The tool supplies the
+session captured at invocation and maps the typed capture into MCP images or
+saved paths.
+
+`createAllTools` builds all 20 built-in tools without opening sockets.
+`registerMcpTools` registers them once and applies shared step logging.
+Connection tools log their own session transitions because their report owner
+changes during execution. App-defined tools have a dedicated dynamic registry,
+which retains registration handles and removes them on disconnect/reconnect.
 
 ## Public package boundaries
 
-CLI adapters import `package:marionette_mcp/runtime.dart` for app connections,
-selectors, reports, and recording. They import
-`package:marionette_mcp/marionette_mcp.dart` for server startup. Other packages
-should use these entrypoints rather than importing `lib/src` files. Existing
+Embedders import `package:marionette_mcp/marionette_mcp.dart` for server
+composition, owned context, configuration, and startup. Its exports are explicit;
+tool implementation classes remain internal. They import
+`package:marionette_mcp/runtime.dart` for app connections and shared runtime
+APIs. CLI adapters use these public entrypoints for server startup, selectors,
+reports, and recording rather than importing implementation files.
+
 MCP tools and executable options keep their names and input schemas.
-Shared report formatting and persistence live in `src/session/report_steps.dart`
-without an MCP dependency; MCP result interpretation lives in `mcp/step_logging.dart`.
-Former internal MCP paths are compatibility exports of the new implementations.
+Runtime implementations cannot import the MCP SDK or MCP adapters. The few
+former internal MCP paths remain export-only compatibility bridges for existing
+consumers, and runtime code does not depend on those bridges.
 
 ## Structured tool results
 
@@ -74,19 +122,32 @@ Disposing the context retires dynamic tools and closes its app connection.
 Disconnecting releases dynamic tool names, so reconnecting uses the current
 app's schemas without retaining disabled registrations.
 
-Recording setup owns its WebSocket listener until a `RecordingSession` has
-been created successfully. Startup failure closes the listener; after a
-successful transfer the session owns cleanup.
+## CLI integration
 
-## CLI selection
+The CLI reuses the public runtime/server entrypoints and `ServerConfig` instead
+of importing `src/` implementations. Its targeting validation requires finite
+coordinate pairs, complete coordinate swipes, and distinct coordinate, element,
+or focused selection modes. Pinch values must be positive and finite; ancestor
+scope continues to apply only to element targeting.
 
-CLI coordinate selectors require both `--x` and `--y`, with finite numeric
-values. Coordinate swipes require all four start/end coordinates. Malformed
-coordinates fail before invoking the app instead of silently dropping a value.
-Coordinate, element, and focused targeting are separate modes; an element
-mode may retain combined key, identifier, text, and type filters. Ancestor
-scope keeps its existing behavior, including being ignored by coordinate and
-focused targeting.
+Web recording startup owns its listener until a `RecordingSession` has been
+created successfully. Startup failure closes that listener; successful setup
+transfers cleanup to the recording session.
+
+## Adding or changing a tool
+
+1. Put reusable workflow/state/persistence behavior in a runtime service. Keep
+   the service API typed and independent of MCP.
+2. Implement a `BaseTool` adapter with its input schema, output schema, metadata,
+   and result/error formatting. Inject its dependencies through the constructor.
+3. Add it to the appropriate factory and the central built-in registry. Keep
+   external resource acquisition out of tool constructors and registration.
+4. Test service behavior directly, then check the adapter's structured output,
+   errors, and public SDK interaction. Update consumer guidance for observable
+   changes.
+
+The architecture test enforces the public entrypoints and dependency direction;
+it also prevents compatibility bridges from accumulating implementation logic.
 
 ## Verification
 
@@ -96,8 +157,10 @@ and `packages/marionette_cli`, then `flutter test --no-pub` in
 `packages/marionette_flutter`.
 
 `server_api_test.dart` drives the real executable through public SDK client
-APIs under legacy initialization and stateless discovery, including successful
-structured results, dynamic extension removal, and ordinary error results.
+APIs to verify catalogs and disconnected errors under legacy initialization
+and stateless discovery. Additional in-process public SDK tests use
+`IOStreamTransport` to verify successful structured results, dynamic extension
+removal, and ordinary error results.
 Its catalog fixture
 was captured from the original 0.7.0 implementation with SDK 2.4.3; update it
 only for an intentional tool-contract change. The comparison permits the new
@@ -105,10 +168,9 @@ output schemas while preserving every original input contract and annotation.
 Shutdown regressions use a real
 Dart VM service fixture and cover connected EOF and signals.
 
-`dart tool/check_frame_protocol.dart` checks Flutter-encoded frames against
-the CLI recording consumer, including fragmented delivery. CI runs this check on both
-the normal and minimum supported toolchains. This keeps the production
-packages independent while detecting drift in their shared wire format.
+`dart tool/check_frame_protocol.dart` checks Flutter-encoded video frames
+against the CLI recording consumer, including fragmented delivery. CI runs it
+on normal and minimum toolchains without coupling the production packages.
 
 The minimum-toolchain CI job selects separate workspace groups for the
 standalone Dart server/CLI and the Flutter binding/adapters. Flutter 3.27's
