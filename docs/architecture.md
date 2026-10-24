@@ -5,7 +5,7 @@ Marionette uses typed MCP adapters over independent app runtime services.
 ```text
 lib/
   marionette_mcp.dart           public server API
-  runtime.dart                 public app connection API
+  runtime.dart                 public shared runtime API
   src/
     mcp/
       mcp.dart                 composition and registration
@@ -57,9 +57,8 @@ tests. Adapters execute directly; shared result envelopes and ancestor descripti
 have one definition. Operation-specific schemas and recovery messages stay local.
 The architecture test enforces entrypoints and dependency direction.
 
-Two temporary exports support the unchanged CLI's internal imports:
-`src/mcp_server_runner.dart` and `src/session/step_logger.dart`. Its migration to
-the public entrypoints removes these bridges; runtime code does not use them.
+CLI adapters consume the public server/runtime entrypoints. Internal compatibility
+aliases have been removed.
 
 ## Ownership and shutdown
 
@@ -95,6 +94,12 @@ schema. Tool names, input schemas, and annotations remain compatible.
 | Connect | `uri`, `sessionReportsEnabled`, optional `sessionPath` or `warning` |
 | Disconnect | `disconnected`, optional closing `sessionPath` |
 
+## CLI integration
+
+The CLI shares `ServerConfig` and public runtime APIs. It rejects incomplete or
+nonfinite coordinates and conflicting selection modes. Recording startup owns
+its listener until a session is created, closing it on failure.
+
 ## Adding a tool
 
 1. Put reusable workflow, state, or persistence in an MCP-independent service.
@@ -115,6 +120,9 @@ results under legacy initialization and stateless discovery. The catalog fixture
 comes from the original 0.7.0 server with SDK 2.4.3; change it only for intentional
 contract changes. Process tests and real VM fixtures cover connection shutdown,
 pending WebSocket upgrades, EOF, signals, SSE, and startup failures.
+
+`dart tool/check_frame_protocol.dart` verifies Flutter-produced video frames
+against the CLI recording consumer on both toolchains.
 
 Minimum-version CI selects separate Dart and Flutter workspace groups:
 Flutter 3.27's `flutter_test` pins `meta` 1.15, while `mcp_dart` 2.4.3 requires

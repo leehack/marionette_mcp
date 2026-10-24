@@ -1,6 +1,6 @@
 import 'package:args/args.dart';
 
-/// Command-line configuration for the standalone Marionette MCP server.
+/// Command-line configuration shared by both Marionette server entrypoints.
 class ServerConfig {
   const ServerConfig({this.logLevel = 'INFO', this.logFile, this.ssePort});
 
